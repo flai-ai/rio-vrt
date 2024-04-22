@@ -1,5 +1,5 @@
 """Rasterio based vrt creation."""
-
+import os.path
 import xml.etree.cElementTree as ET
 from os.path import relpath
 from pathlib import Path
@@ -43,7 +43,8 @@ def _add_source_content(
 def build_vrt(
     vrt_path: Union[str, Path],
     files: List[Union[str, Path]],
-    relative: bool = False,
+    relative: bool = True,
+    strip_path: bool = True,
     mosaic: bool = True,
     res: Union[str, Tuple[float, float]] = "average",
 ) -> Path:
@@ -113,16 +114,16 @@ def build_vrt(
             bottom_.append(f.bounds.bottom)
 
     # get the spatial extend of the dataset
-    left = min(*left_)
-    bottom = min(*bottom_)
-    right = max(*right_)
-    top = max(*top_)
+    left = min(left_)
+    bottom = min(bottom_)
+    right = max(right_)
+    top = max(top_)
 
     # get the resolution
     if res == "highest":
-        xres, yres = max(*xres_), max(*yres_)
+        xres, yres = max(xres_), max(yres_)
     elif res == "lowest":
-        xres, yres = min(*xres_), min(*yres_)
+        xres, yres = min(xres_), min(yres_)
     elif res == "average":
         xres, yres = mean(xres_), mean(yres_)
     elif isinstance(res, tuple):
@@ -141,12 +142,13 @@ def build_vrt(
     # don't know how to extract dataAxisToSRSAxisMapping
     # https://gis.stackexchange.com/questions/458781/how-to-get-dataaxistosrsaxismapping-from-an-image
     # revert to OAMS_TRADITIONAL_GIS_ORDER  until then
-    ET.SubElement(VRTDataset, "SRS").text = crs.wkt
+    if crs is not None:
+        ET.SubElement(VRTDataset, "SRS").text = crs.wkt
 
     text = ", ".join([str(i) for i in transform.to_gdal()])
     ET.SubElement(VRTDataset, "GeoTransform").text = text
 
-    ET.SubElement(VRTDataset, "OverviewList", {"resampling": "nearest"}).text = "2 4 8"
+    # ET.SubElement(VRTDataset, "OverviewList", {"resampling": "nearest"}).text = "2 4 8"
 
     # add the rasterbands
 
@@ -183,7 +185,13 @@ def build_vrt(
                     Source = ET.SubElement(VRTRasterBands_dict[i], source_type)
 
                     attr = {"relativeToVRT": relativeToVRT}
-                    text = str(f) if not relative else relpath(f, vrt_path.parent)
+                    if relative:
+                        if strip_path:
+                            text = os.path.basename(f)
+                        else:
+                            text = relpath(f, vrt_path.parent)
+                    else:
+                        text = str(f)
                     ET.SubElement(Source, "SourceFilename", attr).text = text
 
                     ET.SubElement(Source, "SourceBand").text = str(i)
@@ -215,7 +223,13 @@ def build_vrt(
 
             relativeToVRT = "1" if relative is True else "0"
             attr = {"relativeToVRT": relativeToVRT}
-            text = str(f) if not relative else relpath(f, vrt_path.parent)
+            if relative:
+                if strip_path:
+                    text = os.path.basename(f)
+                else:
+                    text = relpath(f, vrt_path.parent)
+            else:
+                text = str(f)
             ET.SubElement(ComplexSource, "SourceFilename", attr).text = text
 
             ET.SubElement(ComplexSource, "SourceBand").text = "1"
